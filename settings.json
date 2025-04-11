@@ -1,0 +1,22 @@
+{
+    "police_act": {
+        "path": "./data/police_act_1861.pdf",
+        "description": "The Police Act, 1861 regulates the police force in India, detailing their powers, duties, and responsibilities. This document is useful for answering questions about the legal framework governing police operations."
+    },
+    "standing_order": {
+        "path": "./data/pso.pdf",
+        "description": "The Police Standing Orders provide detailed guidelines on procedures and protocols for police officers. Use this document when questions concern police procedures or operational guidelines."
+    },
+    "ipc_codes": {
+        "path": "./data/IPC_codes.pdf",
+        "description": "The Indian Penal Code (IPC) is the main criminal code of India, covering all substantive aspects of criminal law. It includes definitions and punishments for crimes such as theft."
+    },
+    "emergency_numbers": {
+        "path": "./data/emergency_numbers.pdf",
+        "description": "This document lists emergency contact numbers, including those for police, fire, and medical services."
+    },
+    "fir": {
+        "path": "./data/fir.pdf",
+        "description": "A First Information Report (FIR) details the initial steps in criminal investigations. It is useful for questions on procedural aspects of law enforcement when a crime is reported."
+    }
+}
