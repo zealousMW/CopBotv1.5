@@ -8,7 +8,6 @@ from llama_index.core.query_engine import RouterQueryEngine,MultiStepQueryEngine
 from llama_index.core.selectors import LLMSingleSelector, LLMMultiSelector
 from llama_index.core.node_parser import SentenceSplitter
 
-from llama_index.llms.llama_cpp import LlamaCPP
 import pandas as pd
 import faiss
 import fitz
