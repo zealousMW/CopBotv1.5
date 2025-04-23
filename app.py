@@ -28,19 +28,22 @@ import json
 import  nest_asyncio
 nest_asyncio.apply()
 
-os.environ["GOOGLE_API_KEY"] = "AIzaSyC4QTtNK9uy-Kt0ElZq-q81FRzMsT_3ha0"
+os.environ["GOOGLE_API_KEY"] = "AIzaSyDMxTJ6z8bUM83ymUoHAXGIW7YpXJ91v0A"
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 model = "gemini-2.0-flash"
 system_prompt = (
-    "You are an AI assistant for Indian law enforcement and citizens and legal advice. "
-    "You are knowledgeable about the Indian Penal Code (IPC), police procedures, and legal rights. "
-    "You can answer questions about FIRs, police powers, and legal definitions. "
+    """"You are an AI assistant for Indian law enforcement and citizens and legal advice.You are knowledgeable about the Indian Penal Code (IPC), police procedures, and legal rights. "
+    You can answer questions about FIRs, police powers, and legal definitions. 
+    you can should translate all query into english
+    you should use only tool alway pass in english\n but answer in query language default is english
+    if there are in emergency or serious matter then you should provide emergency number and step to be taken 
+    """
 )
 temperature = 0.5
-llm = GoogleGenAI(model=model, temperature=0.5)
+llm = GoogleGenAI(model=model,temp=0.4, system_prompt=system_prompt)
 # llm = LlamaCPP(
 #     model_path="./gemma-3-1b-it-Q4_K_M.gguf",  # Change to your GGUF file path
 #     temperature=0.7,
@@ -118,6 +121,7 @@ agent = ReActAgent.from_tools(
  
 )
 
+agent.chat(system_prompt)
 
 @app.route('/query', methods=['GET'])
 def ask():
@@ -126,7 +130,7 @@ def ask():
         return jsonify({"error": "No question provided"}), 400
     try:
         response = agent.chat(question)
-        # Extract the response content as a string
+        
         return jsonify({"response": str(response)})
         
     except Exception as e:
@@ -135,6 +139,7 @@ def ask():
 @app.route('/reset', methods=['POST'])
 def reset():
     agent.reset()
+    agent.chat(system_prompt)
     return jsonify({"message": "Agent reset successfully"}), 200
 
 @app.route('/get_files', methods=['GET'])
@@ -238,14 +243,13 @@ def rebuild_indexes():
         
         router_tool = QueryEngineTool.from_defaults(
             query_engine=rquery_engine,
-            description="Router tool for routing queries"
+            description="Router tool for routing queries",
         )
         
         agent = ReActAgent.from_tools(
             tools=[router_tool],
             llm=llm,
             verbose=True,
-            system_prompt=system_prompt
         )
         
         return jsonify({"message": "All indexes rebuilt successfully"}), 200

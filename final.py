@@ -46,15 +46,15 @@ def extract_text_from_pdf(pdf_path):
     doc.close()
     return pdf_text
 
-pdf_path = './police_act_1861.pdf'
+pdf_path = './data/police_act_1861.pdf'
 pdf_text = extract_text_from_pdf(pdf_path)
 pdf_doc = Document(text=pdf_text, metadata={"source": "Police Act"})
 
-standing_order_path = './pso.pdf'
+standing_order_path = './data/pso.pdf'
 standing_order_text = extract_text_from_pdf(standing_order_path)
 standing_order_doc = Document(text=standing_order_text, metadata={"source": "Standing Order"})
 
-ipc_path = './IPC_codes.pdf'
+ipc_path = './data/IPC_codes.pdf'
 ipc_text = extract_text_from_pdf(ipc_path)
 ipc_doc = Document(text=ipc_text, metadata={"source": "THE INDIAN PENAL CODE"})
 
@@ -64,12 +64,12 @@ ipc_doc = Document(text=ipc_text, metadata={"source": "THE INDIAN PENAL CODE"})
 
 # csv_text = data.to_string()
 
-csv_path="./fir.pdf"
+csv_path="./data/fir.pdf"
 csv_text = extract_text_from_pdf(csv_path)
 csv_doc = Document(text=csv_text, metadata={"source": "First Information Report"})
 
 # -------------------------- Emergency Numbers Extraction --------------------------
-emergency_path = './emergency_numbers.pdf'
+emergency_path = './data/emergency_numbers.pdf'
 emergency_text = extract_text_from_pdf(emergency_path)
 emergency_doc = Document(text=emergency_text, metadata={"source": "Emergency Numbers"})
 
