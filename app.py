@@ -3,8 +3,8 @@ from llama_index.core import Settings, Document, VectorStoreIndex , SimpleDirect
 from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.faiss import FaissVectorStore
-from llama_index.core.tools import QueryEngineTool
-from llama_index.core.query_engine import RouterQueryEngine,MultiStepQueryEngine
+from llama_index.core.tools import FunctionTool
+from llama_index.core.query_engine import MultiStepQueryEngine
 from llama_index.core.selectors import LLMSingleSelector, LLMMultiSelector
 from llama_index.core.node_parser import SentenceSplitter
 
@@ -19,7 +19,7 @@ from llama_index.core.indices.query.query_transform.base import (
 from llama_index.core import (
     Settings, Document, VectorStoreIndex, StorageContext, load_index_from_storage
 )
-from llama_index.core.agent import ReActAgent, FunctionCallingAgent
+from llama_index.core.agent import ReActAgent, ReActAgent
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import glob
@@ -35,11 +35,41 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 model = "gemini-2.0-flash"
 system_prompt = (
-    """"You are an AI assistant for Indian law enforcement and citizens and legal advice.You are knowledgeable about the Indian Penal Code (IPC), police procedures, and legal rights. "
-    You can answer questions about FIRs, police powers, and legal definitions. 
-    you can should translate all query into english
-    you should use only tool alway pass in english\n but answer in query language default is english
-    if there are in emergency or serious matter then you should provide emergency number and step to be taken 
+    """You are an AI assistant for Indian law enforcement and citizens and legal advice. You should:
+
+    When handling queries:
+    1. Expand specific queries into their broader legal categories
+       - If about specific animals -> expand to animal protection laws
+       - If about specific places -> expand to property and trespassing laws
+       - If about specific people -> expand to personal rights and protection laws
+    
+    2. Always check for:
+       - Related criminal offenses
+       - Associated civil violations
+       - Prevention of cruelty laws
+       - Public safety regulations
+       - Environmental protection rules
+    
+    3. Use knowledge tools to find:
+       - Applicable laws and regulations
+       - Legal precedents
+       - Relevant penalties
+       - Reporting procedures
+    
+    4. Present information with:
+       - Clear legal implications
+       - Preventive measures
+       - Reporting channels
+       - Emergency contacts if needed
+    
+    Important:
+    - Treat specific examples as part of broader legal categories
+    - Always consider ethical and legal implications
+    - Identify both direct and related violations
+    - Provide prevention and reporting guidance
+    
+    Always translate non-English queries to English before processing.
+    Format final response in the query's original language.
     """
 )
 temperature = 0.5
@@ -57,11 +87,11 @@ llm = GoogleGenAI(model=model,temp=0.4)
 
 import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
-embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5", device=device)
+embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-base-en-v1.5", device=device)
 
 Settings.llm = llm
 Settings.embed_model = embed_model
-splitter = SentenceSplitter(chunk_size=1024,chunk_overlap=100)
+splitter = SentenceSplitter(chunk_size=1024,chunk_overlap=256)
 
 # Load CORE_FILES from settings.json
 with open('settings.json', 'r') as f:
@@ -91,36 +121,48 @@ for category, info in CORE_FILES.items():
     storage_path = f"./storage/{category}"
     if not os.path.exists(storage_path):
         os.makedirs(storage_path)
-    index = processOrLoad(file_path, 384, storage_path)
+    index = processOrLoad(file_path, 768, storage_path)
     print(f"Processed {category} and stored in {storage_path}")
-    qengine = index.as_query_engine(similarity_top_k=10, response_mode="compact")
+    qengine = index.as_query_engine(similarity_top_k=30, response_mode="compact")
+    
+    # Create function tool for each query engine
+    def create_query_fn(engine, category):
+        def query_function(query: str) -> str:
+            """
+            Search the {category} knowledge base for legal information.
+            
+            First expand the query to consider:
+            - Relevant legal terms
+            - Related procedures and rights
+            - Similar legal scenarios
+            
+            Args:
+                query (str): A legal query that will be analyzed and expanded for comprehensive search
+            Returns:
+                str: Detailed response from the legal knowledge base
+            """
+            response = engine.query(query)
+            return str(response)
+        return query_function
+    
+    query_fn = create_query_fn(qengine, category)
+    query_fn.__name__ = f"query_{category}"
+    
     query_engine_tools.append(
-        QueryEngineTool.from_defaults(
-            query_engine=qengine, 
+        FunctionTool.from_defaults(
+            fn=query_fn,
+            name=f"query_{category}",
             description=info['description']
         )
     )
 
-rquery_engine = RouterQueryEngine(
-    selector=LLMMultiSelector.from_defaults(),
-    query_engine_tools=query_engine_tools,
+agent = ReActAgent.from_tools(
+    tools=query_engine_tools,
+    llm=llm,
+    system_prompt=system_prompt,
     verbose=True,
     
 )
-
-router_tool = QueryEngineTool.from_defaults(
-    query_engine=rquery_engine,
-     description="Router tool for routing queries",
-)
-
-agent = ReActAgent.from_tools(
-    tools=[router_tool],
-    llm=llm,
-    verbose=True,
-    system_prompt=system_prompt,
- 
-)
-
 
 from deep_translator import GoogleTranslator
 import fasttext
@@ -260,7 +302,7 @@ def rebuild_indexes():
             shutil.rmtree(storage_dir)
             
         # Rebuild query engine tools
-        global query_engine_tools, rquery_engine, router_tool, agent
+        global query_engine_tools, agent
         query_engine_tools = []
         
         # Recreate indexes
@@ -274,29 +316,36 @@ def rebuild_indexes():
             print(f"Rebuilt index for {category}")
             
             qengine = index.as_query_engine(similarity_top_k=10, response_mode="compact")
+            
+            # Create function tool for each query engine
+            def create_query_fn(engine, category):
+                def query_function(query: str) -> str:
+                    """
+                    Query the {category} knowledge base
+                    Args:
+                        query (str): The query to search for in {category} documents
+                    Returns:
+                        str: Response from the knowledge base
+                    """
+                    response = engine.query(query)
+                    return str(response)
+                return query_function
+            
+            query_fn = create_query_fn(qengine, category)
+            query_fn.__name__ = f"query_{category}"
+            
             query_engine_tools.append(
-                QueryEngineTool.from_defaults(
-                    query_engine=qengine,
+                FunctionTool.from_defaults(
+                    fn=query_fn,
+                    name=f"query_{category}",
                     description=info['description']
                 )
             )
         
-        # Reinitialize router and agent
-        rquery_engine = RouterQueryEngine(
-            selector=LLMMultiSelector.from_defaults(),
-            query_engine_tools=query_engine_tools,
-            verbose=True
-        )
-        
-        router_tool = QueryEngineTool.from_defaults(
-            query_engine=rquery_engine,
-            description="Router tool for routing queries",
-        )
-        
-        agent = FunctionCallingAgent.from_tools(
-            tools=[router_tool],
+        agent = ReActAgent.from_tools(
+            tools=query_engine_tools,
             llm=llm,
-            system_prompt="answer the question without using any tool",
+            system_prompt=system_prompt,
             verbose=True,
         )
         
