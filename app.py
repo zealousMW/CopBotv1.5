@@ -19,7 +19,7 @@ from llama_index.core.indices.query.query_transform.base import (
 from llama_index.core import (
     Settings, Document, VectorStoreIndex, StorageContext, load_index_from_storage
 )
-from llama_index.core.agent import ReActAgent
+from llama_index.core.agent import ReActAgent, FunctionCallingAgent
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import glob
@@ -43,7 +43,7 @@ system_prompt = (
     """
 )
 temperature = 0.5
-llm = GoogleGenAI(model=model,temp=0.4, system_prompt=system_prompt)
+llm = GoogleGenAI(model=model,temp=0.4)
 # llm = LlamaCPP(
 #     model_path="./gemma-3-1b-it-Q4_K_M.gguf",  # Change to your GGUF file path
 #     temperature=0.7,
@@ -121,7 +121,43 @@ agent = ReActAgent.from_tools(
  
 )
 
-agent.chat(system_prompt)
+
+from deep_translator import GoogleTranslator
+import fasttext
+import os
+import urllib.request
+
+# Download and load FastText model if not exists
+def load_fasttext_model():
+    model_path = "lid.176.ftz"
+    if not os.path.exists(model_path):
+        print("Downloading FastText language detection model...")
+        urllib.request.urlretrieve(
+            "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz",
+            model_path
+        )
+    return fasttext.load_model(model_path)
+
+# Initialize translator and language detector
+lang_model = load_fasttext_model()
+
+def translate_text(text, source='auto', target='en'):
+    translator = GoogleTranslator(source=source, target=target)
+    return translator.translate(text)
+
+def detect_and_translate(text):
+    try:
+        # FastText returns list of labels and probabilities
+        predictions = lang_model.predict(text, k=1)
+        detected_lang = predictions[0][0].replace('__label__', '')  # Remove prefix
+        
+        if detected_lang != 'en':
+            eng_text = translate_text(text, source=detected_lang, target='en')
+            return eng_text, detected_lang
+        return text, 'en'
+    except Exception as e:
+        print(f"Translation error: {e}")
+        return text, 'en'
 
 @app.route('/query', methods=['GET'])
 def ask():
@@ -129,9 +165,20 @@ def ask():
     if not question:
         return jsonify({"error": "No question provided"}), 400
     try:
-        response = agent.chat(question)
+        # Detect language and translate to English if needed
+        eng_question, src_lang = detect_and_translate(question)
+        print(f"Detected language: {src_lang}")
+        print(f"Translated question: {eng_question}")
         
-        return jsonify({"response": str(response)})
+        # Get response from agent
+        response = agent.chat(eng_question)
+        
+        # Translate response back to source language if it wasn't English
+        if src_lang != 'en':
+            translated_response = translate_text(str(response), source='en', target=src_lang)
+            return jsonify({"response": translated_response, "detected_language": src_lang})
+        
+        return jsonify({"response": str(response), "detected_language": src_lang})
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -139,7 +186,7 @@ def ask():
 @app.route('/reset', methods=['POST'])
 def reset():
     agent.reset()
-    agent.chat(system_prompt)
+   
     return jsonify({"message": "Agent reset successfully"}), 200
 
 @app.route('/get_files', methods=['GET'])
@@ -246,9 +293,10 @@ def rebuild_indexes():
             description="Router tool for routing queries",
         )
         
-        agent = ReActAgent.from_tools(
+        agent = FunctionCallingAgent.from_tools(
             tools=[router_tool],
             llm=llm,
+            system_prompt="answer the question without using any tool",
             verbose=True,
         )
         
