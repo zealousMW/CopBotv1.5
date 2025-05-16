@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from llama_index.core import Settings, Document, VectorStoreIndex , SimpleDirectoryReader
 from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
@@ -32,6 +32,14 @@ os.environ["GOOGLE_API_KEY"] = "AIzaSyDMxTJ6z8bUM83ymUoHAXGIW7YpXJ91v0A"
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+# Add static file serving for temp directory
+@app.route('/temp/<path:filename>')
+def serve_file(filename):
+    try:
+        return send_from_directory('temp', filename)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 404
 
 model = "gemini-2.0-flash"
 system_prompt = (
@@ -156,12 +164,177 @@ for category, info in CORE_FILES.items():
         )
     )
 
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+def create_fir_draft(
+    query: str,
+    police_station: str = None,
+    district: str = None,
+    date_occurrence: str = None,
+    date_reported: str = None,
+    complainant_details: str = None,
+    offence_description: str = None,
+    ipc_sections: str = None,
+    place_occurrence: str = None,
+    criminal_details: str = None,
+    investigation_steps: str = None,
+    incident_description: str = None
+) -> dict:
+    """
+    Create a First Information Report (FIR) draft based on provided information
+    
+    Args:
+        query (str): Original query to extract missing information
+        police_station (str): Name of police station
+        district (str): District name
+        date_occurrence (str): Date and time of occurrence
+        date_reported (str): Date and time reported
+        complainant_details (str): Name and address of complainant
+        offence_description (str): Brief description of offence
+        ipc_sections (str): Applicable IPC sections
+        place_occurrence (str): Place of occurrence and distance from PS
+        criminal_details (str): Criminal name/address if known
+        investigation_steps (str): Initial investigation steps
+        incident_description (str): Detailed incident description
+    Returns:
+        dict: Formatted FIR draft and PDF URL
+    """
+    # Generate FIR number using timestamp
+    fir_number = f"FIR{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    # Current date/time for dispatch
+    dispatch_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Create text version
+    text_content = f"""
+FIRST INFORMATION REPORT
+========================
+Police Station: {police_station if police_station else '[POLICE STATION REQUIRED]'}
+District: {district if district else '[DISTRICT REQUIRED]'}
+FIR Number: {fir_number}
+
+Date/Time of Occurrence: {date_occurrence if date_occurrence else '[DATE/TIME OF OCCURRENCE REQUIRED]'}
+Date/Time Reported: {date_reported if date_reported else '[DATE/TIME REPORTED REQUIRED]'}
+
+Complainant Details:
+{complainant_details if complainant_details else '[COMPLAINANT DETAILS REQUIRED]'}
+
+Brief Description of Offence:
+{offence_description if offence_description else '[OFFENCE DESCRIPTION REQUIRED]'}
+
+IPC Section(s):
+{ipc_sections if ipc_sections else '[IPC SECTIONS REQUIRED]'}
+
+Place of Occurrence:
+{place_occurrence if place_occurrence else '[PLACE OF OCCURRENCE REQUIRED]'}
+
+Criminal Details (if known):
+{criminal_details if criminal_details else 'Unknown/Not Provided'}
+
+Investigation Steps:
+{investigation_steps if investigation_steps else 'Pending Investigation'}
+
+Date/Time of Dispatch from PS: {dispatch_datetime}
+
+Detailed Incident Description:
+{incident_description if incident_description else '[DETAILED DESCRIPTION REQUIRED]'}
+"""
+
+    # Generate PDF
+    pdf_path = f"temp/fir_{fir_number}.pdf"
+    os.makedirs("temp", exist_ok=True)
+    
+    doc = SimpleDocTemplate(
+        pdf_path,
+        pagesize=A4,
+        rightMargin=72,
+        leftMargin=72,
+        topMargin=72,
+        bottomMargin=72
+    )
+    
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=30
+    )
+    
+    section_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading2'],
+        fontSize=12,
+        spaceAfter=12
+    )
+    
+    content_style = ParagraphStyle(
+        'Content',
+        parent=styles['Normal'],
+        fontSize=10,
+        spaceAfter=12
+    )
+    
+    # Add content
+    story.append(Paragraph("FIRST INFORMATION REPORT", title_style))
+    story.append(Paragraph(f"FIR Number: {fir_number}", section_style))
+    story.append(Spacer(1, 12))
+    
+    # Add sections
+    sections = [
+        ("JURISDICTION", f"Police Station: {police_station or '[REQUIRED]'}\nDistrict: {district or '[REQUIRED]'}"),
+        ("DATE & TIME", f"Occurrence: {date_occurrence or '[REQUIRED]'}\nReported: {date_reported or '[REQUIRED]'}\nDispatch: {dispatch_datetime}"),
+        ("COMPLAINANT", complainant_details or '[REQUIRED]'),
+        ("OFFENCE DETAILS", offence_description or '[REQUIRED]'),
+        ("IPC SECTIONS", ipc_sections or '[REQUIRED]'),
+        ("LOCATION", place_occurrence or '[REQUIRED]'),
+        ("ACCUSED DETAILS", criminal_details or 'Unknown'),
+        ("INVESTIGATION", investigation_steps or 'Pending'),
+        ("INCIDENT DESCRIPTION", incident_description or '[REQUIRED]')
+    ]
+    
+    for title, content in sections:
+        story.append(Paragraph(title, section_style))
+        story.append(Paragraph(content.replace('\n', '<br/>\n'), content_style))
+        story.append(Spacer(1, 12))
+    
+    doc.build(story)
+    
+    # Update PDF URL to use temp route
+    return {
+        "text": text_content,
+        "pdf_url": f"/temp/fir_{fir_number}.pdf",
+        "fir_number": fir_number,
+        "is_fir": True
+    }
+
+# Add FIR tool to the tools list before agent creation
+fir_tool = FunctionTool.from_defaults(
+    fn=create_fir_draft,
+    name="create_fir_draft",
+    description="Creates a draft FIR (First Information Report) with provided details. Will prompt for missing required information."
+)
+
+query_engine_tools.append(fir_tool)
+
+system_prompt += """
+For FIR-related tasks:
+1. If user asks to create FIR:
+   - Use create_fir_draft to generate draft
+   - Provide both draft text and PDF link to user
+"""
+
 agent = ReActAgent.from_tools(
     tools=query_engine_tools,
     llm=llm,
     system_prompt=system_prompt,
     verbose=True,
-    
 )
 
 from deep_translator import GoogleTranslator
@@ -214,22 +387,43 @@ def ask():
         
         # Get response from agent
         response = agent.chat(eng_question)
+        response_text = str(response)
+        is_fir = "FIRST INFORMATION REPORT" in response_text
         
-        # Translate response back to source language if it wasn't English
         if src_lang != 'en':
-            translated_response = translate_text(str(response), source='en', target=src_lang)
-            return jsonify({"response": translated_response, "detected_language": src_lang})
+            response_text = translate_text(response_text, source='en', target=src_lang)
         
-        return jsonify({"response": str(response), "detected_language": src_lang})
+        return jsonify({
+            "response": response_text,
+            "detected_language": src_lang,
+            "is_fir": is_fir,
+            "fir_number": response.fir_number if hasattr(response, 'fir_number') else None,
+            "pdf_url": response.pdf_url if hasattr(response, 'pdf_url') else None
+        })
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route('/reset', methods=['POST'])
 def reset():
-    agent.reset()
-   
-    return jsonify({"message": "Agent reset successfully"}), 200
+    try:
+        # Reset agent
+        agent.reset()
+        
+        # Clear temp directory
+        temp_dir = "./temp"
+        if os.path.exists(temp_dir):
+            for file in os.listdir(temp_dir):
+                file_path = os.path.join(temp_dir, file)
+                try:
+                    if os.path.isfile(file_path):
+                        os.unlink(file_path)
+                except Exception as e:
+                    print(f"Error deleting {file_path}: {e}")
+        
+        return jsonify({"message": "Agent reset and temp files cleared successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": f"Reset failed: {str(e)}"}), 500
 
 @app.route('/get_files', methods=['GET'])
 def get_files():

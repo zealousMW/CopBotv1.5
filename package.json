@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    // ...existing dependencies...
+    "interweave": "^13.1.0"
+  }
+}

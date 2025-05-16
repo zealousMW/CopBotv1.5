@@ -6,18 +6,31 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, User, Loader2, RefreshCw, Mic, MicOff } from "lucide-react";
+import { Send, Bot, User, Loader2, RefreshCw, Mic, MicOff, FileText, Download } from "lucide-react";
 import { format } from 'date-fns';
+import { Interweave } from 'interweave';
+// Add these imports for matchers
+import { UrlMatcher, HashtagMatcher } from 'interweave-autolink';
+
+interface Message {
+  type: 'user' | 'bot';
+  content: string;
+  is_fir?: boolean;
+  pdf_url?: string;
+  fir_number?: string;
+  timestamp: string; // Add timestamp
+}
 
 export default function Home() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
-  const [messages, setMessages] = useState<{ type: 'user' | 'bot'; content: string }[]>([
+  const [messages, setMessages] = useState<Message[]>([
     {
       type: 'bot',
       content: `👋 Hi! I'm your CopBot.
       
-I can help you with Police Act, Standing Orders, IPC, and case data. How can I help?`
+I can help you with Police Act, Standing Orders, IPC, and case data. How can I help?`,
+      timestamp: new Date().toISOString(), // Set initial timestamp
     }
   ]);
   const [input, setInput] = useState('');
@@ -49,7 +62,6 @@ I can help you with Police Act, Standing Orders, IPC, and case data. How can I h
     };
   }, [isLoading]);
 
-  // Refine the useEffect for auto-scrolling
   useEffect(() => {
     if (scrollAreaRef.current) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
@@ -58,8 +70,8 @@ I can help you with Police Act, Standing Orders, IPC, and case data. How can I h
 
   const handleSend = async () => {
     if (!input.trim()) return;
-    
-    const userMessage = { type: 'user', content: input };
+
+    const userMessage: Message = { type: 'user', content: input, timestamp: new Date().toISOString() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -68,21 +80,21 @@ I can help you with Police Act, Standing Orders, IPC, and case data. How can I h
     try {
       const response = await fetch(`http://localhost:5000/query?query=${encodeURIComponent(input)}`);
       const data = await response.json();
-      
-      // Handle the response text
-      const responseText = typeof data.response === 'string' 
-        ? data.response 
-        : 'Received invalid response format';
 
-      setMessages(prev => [...prev, { 
-        type: 'bot', 
-        content: responseText
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: data.response,
+        is_fir: data.is_fir,
+        pdf_url: data.pdf_url,
+        fir_number: data.fir_number,
+        timestamp: new Date().toISOString(), // Set timestamp for bot reply
       }]);
     } catch (error) {
       console.error('Error:', error);
-      setMessages(prev => [...prev, { 
-        type: 'bot', 
-        content: 'Server is down' 
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: 'Server is down',
+        timestamp: new Date().toISOString(),
       }]);
     } finally {
       setIsLoading(false);
@@ -97,7 +109,15 @@ I can help you with Police Act, Standing Orders, IPC, and case data. How can I h
         method: 'POST'
       });
       if (response.ok) {
-        setMessages([]);
+        setMessages([
+          {
+            type: 'bot',
+            content: `👋 Hi! I'm your CopBot.
+      
+I can help you with Police Act, Standing Orders, IPC, and case data. How can I help?`,
+            timestamp: new Date().toISOString(),
+          }
+        ]);
       }
     } catch (error) {
       console.error('Error resetting chat:', error);
@@ -139,9 +159,19 @@ I can help you with Police Act, Standing Orders, IPC, and case data. How can I h
     }
   };
 
+  const handlePdfDownload = (url: string) => {
+    const fullUrl = `http://localhost:5000${url}`;
+    const link = document.createElement('a');
+    link.href = fullUrl;
+    link.target = '_blank';
+    link.download = 'FIR.pdf';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="min-h-screen bg-[conic-gradient(at_top,_var(--tw-gradient-stops))] from-gray-900 via-gray-100 to-gray-900">
-      {/* Navigation Bar */}
       <nav className="w-full bg-white/95 shadow-lg backdrop-blur-sm p-4 sticky top-0 z-50 border-b border-black/10">
         <div className="max-w-4xl mx-auto flex justify-between items-center">
           <h1 className="text-xl font-bold text-slate-800">CopBot</h1>
@@ -209,18 +239,34 @@ I can help you with Police Act, Standing Orders, IPC, and case data. How can I h
                     </div>
                     <div className="flex flex-col gap-1 max-w-[80%]">
                       <div
-                        className={`rounded-2xl p-4 whitespace-pre-wrap ${
+                        className={`rounded-2xl p-4 whitespace-pre-wrap relative ${
                           message.type === 'user'
                             ? 'bg-gradient-to-br from-slate-700 to-slate-800 text-white border border-black/20'
                             : 'bg-gradient-to-br from-slate-50 to-slate-100 text-slate-800 border border-black/10'
                         } shadow-lg hover:shadow-xl transition-shadow`}
                       >
-                        {message.content}
+                        <Interweave
+                          content={message.content}
+                          matchers={[new UrlMatcher('url'), new HashtagMatcher('hashtag')]}
+                        />
+                        {message.is_fir && message.pdf_url && (
+                          <div className="absolute top-2 right-2 flex gap-2">
+                            <Button
+                              onClick={() => handlePdfDownload(message.pdf_url)}
+                              className="bg-red-500 hover:bg-red-600 p-2 rounded-full"
+                              size="icon"
+                              variant="ghost"
+                              title="Download PDF"
+                            >
+                              <Download className="w-4 h-4 text-white" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
                       <span className={`text-xs ${
                         message.type === 'user' ? 'text-right' : ''
                       } text-slate-500`}>
-                        {format(new Date(), 'HH:mm')}
+                        {format(new Date(message.timestamp), 'HH:mm')}
                       </span>
                     </div>
                   </div>
