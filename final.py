@@ -22,7 +22,7 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import glob
 # Configure API and Environmen
-os.environ["GOOGLE_API_KEY"] = "AIzaSyC4QTtNK9uy-Kt0ElZq-q81FRzMsT_3ha0"
+os.environ["GOOGLE_API_KEY"] = "enter_your_api_key_here"
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
